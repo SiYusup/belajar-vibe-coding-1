@@ -1,80 +1,65 @@
-# Implementasi Fitur Login User & Session Management
+# Implementasi Fitur Get Current User
 
 ## Deskripsi Tugas
-Tugas ini bertujuan untuk mengimplementasikan fitur login user pada aplikasi ElysiaJS. Fitur ini mencakup pembuatan tabel `sessions` di database menggunakan Drizzle ORM, pembuatan service logic untuk memverifikasi kredensial user, serta pembuatan endpoint API untuk melayani request login.
+Tugas ini bertujuan untuk mengimplementasikan endpoint API untuk mendapatkan data user yang saat ini sedang login. Fitur ini akan mengecek token yang dikirimkan melalui header `Authorization`, memvalidasinya dengan data di tabel `sessions`, dan jika valid, mengembalikan data profil user tersebut.
 
 ---
 
 ## Spesifikasi Teknis
 
-### 1. Pembuatan Tabel Sessions (`src/db/schema.ts`)
-Tambahkan tabel baru bernama `sessions` ke dalam skema database. Tabel ini akan menyimpan token login yang digunakan untuk autentikasi user.
-
-**Struktur Tabel `sessions`:**
-- `id`: integer, primary key, auto increment
-- `token`: varchar 255, not null *(Gunakan string UUID v4 sebagai token)*
-- `userId`: integer, foreign key yang mereferensikan `id` pada tabel `users`.
-- `createdAt`: timestamp, default current_timestamp
-- `updatedAt`: timestamp, default current_timestamp, on update current_timestamp
-
-**Tahapan Implementasi:**
-1. Buka file `src/db/schema.ts`.
-2. Definisikan tabel `sessions` menggunakan fungsi dari Drizzle (misalnya `mysqlTable`).
-3. Buat field `userId` sebagai foreign key yang mengarah ke tabel `users` (misalnya menggunakan `.references(() => users.id)`).
-4. Setelah skema diperbarui, jalankan perintah migrasi Drizzle (seperti `bun run db:generate` dan `bun run db:push`) untuk membuat tabel tersebut secara fisik di database MySQL.
-
-### 2. Pembuatan Service Logic (`src/services/user-service.ts`)
-Tambahkan fungsi logika bisnis baru untuk menangani login.
+### 1. Pembuatan Service Logic (`src/services/user-service.ts`)
+Tambahkan fungsi baru untuk mengambil data user berdasarkan token.
 
 **Tahapan Implementasi:**
 1. Buka file `src/services/user-service.ts`.
-2. Buat fungsi asynchronous, misalnya `loginUser(payload)`.
-3. **Pencarian User:** Lakukan query menggunakan Drizzle ke tabel `users` untuk mencari data berdasarkan `email` yang dikirim dari payload.
-   - Jika user tidak ditemukan, segera kembalikan response error: `{ error: 'Email atau password salah' }`.
-4. **Verifikasi Password:** Jika user ditemukan, bandingkan `password` dari request payload dengan password hash yang ada di database (bisa menggunakan `Bun.password.verify()`).
-   - Jika verifikasi gagal, kembalikan response error: `{ error: 'Email atau password salah' }`.
-5. **Generate Session Token:** Jika email dan password valid:
-   - Buat sebuah token string menggunakan UUID (misal menggunakan `crypto.randomUUID()`).
-   - Lakukan perintah insert ke tabel `sessions` untuk menyimpan `token` dan `userId` dari user yang berhasil login.
-6. **Return Success:** Kembalikan token ke client dengan format: `{ data: '<token_yang_dihasilkan>' }`.
+2. Buat fungsi asynchronous baru, misalnya `getCurrentUser(token: string)`.
+3. **Pencarian Session & User:** 
+   - Lakukan query ke database menggunakan Drizzle ORM.
+   - Kamu bisa melakukan join antara tabel `sessions` dan tabel `users` (berdasarkan `userId`), ATAU melakukan query bertahap: cari `userId` di `sessions` berdasarkan `token`, lalu cari data user berdasarkan `userId` tersebut.
+4. **Validasi:**
+   - Jika session dengan token tersebut tidak ditemukan, segera kembalikan object error: `{ error: 'Unauthorized' }`.
+5. **Return Success:**
+   - Jika data ditemukan, kembalikan response sukses yang berisi data profil user.
+   - **PENTING**: Jangan pernah menyertakan hash `password` di dalam response.
+   - Format kembalian: `{ data: { id: user.id, name: user.name, email: user.email } }`.
 
-### 3. Pembuatan Endpoint API (`src/routes/users-route.ts`)
-Tambahkan route HTTP baru untuk endpoint login.
+### 2. Pembuatan Endpoint API (`src/routes/users-route.ts`)
+Tambahkan route GET baru untuk mendapatkan data user saat ini.
 
 **Spesifikasi API:**
-- **Endpoint:** `POST /api/users/login`
-- **Request Body:**
+- **Endpoint:** `GET /api/users/current`
+- **Headers:**
+  - `Authorization`: `Bearer <token>` (Misal: `Bearer 297b64c6-762e-460f-8954-9283a42345ed`)
+- **Response Body (Success) - HTTP Status 200:**
   ```json
   {
-      "name": "Admin",
-      "email": "admin",
-      "password": "admin"
+      "data": {
+          "id": 1,
+          "name": "Admin",
+          "email": "admin"
+      }
   }
   ```
-- **Response Body (Success):**
+- **Response Body (Failed) - HTTP Status 401:**
   ```json
   {
-      "data": "token-uuid-disini"
-  }
-  ```
-- **Response Body (Failed):**
-  ```json
-  {
-      "error": "Email atau password salah"
+      "error": "Unauthorized"
   }
   ```
 
 **Tahapan Implementasi:**
 1. Buka file `src/routes/users-route.ts`.
-2. Tambahkan method HTTP `POST` ke path `/users/login` (karena route ini sudah tergabung dengan prefix `/api`).
-3. Tambahkan validasi body menggunakan skema Elysia (`t.Object`) untuk memastikan struktur JSON yang masuk sesuai (memiliki `name`, `email`, dan `password`).
-4. Panggil fungsi `loginUser` yang telah dibuat di `user-service.ts`.
-5. Apabila login gagal, set HTTP status code ke nilai yang sesuai (misalnya `401 Unauthorized` atau `400 Bad Request`) lalu kembalikan payload error.
-6. Jika login berhasil, kembalikan payload success.
+2. Tambahkan method HTTP `.get('/users/current', ...)` pada instance Elysia (di dalam prefix `/api`).
+3. Di dalam handler tersebut:
+   - Ambil nilai dari header `authorization` (pada Elysia tersedia melalui object `headers`).
+   - Ekstrak nilai token-nya. Biasanya formatnya adalah `Bearer <token>`. Jika header `authorization` tidak ada atau formatnya salah, langsung set `set.status = 401` dan kembalikan `{ error: 'Unauthorized' }`.
+   - Panggil fungsi `getCurrentUser(token)` dari `user-service.ts`.
+4. Jika service mereturn error (token tidak ada di DB), set `set.status = 401` dan return error tersebut.
+5. Jika berhasil, return hasil datanya.
 
 ---
 
-## Catatan Penting (Best Practice)
-- Jangan pernah mengembalikan pesan error yang spesifik (seperti "Email tidak ditemukan" atau "Password salah"). Selalu satukan menjadi "Email atau password salah" demi keamanan agar tidak membuka celah *enumeration attack*.
-- Pertahankan **Separation of Concerns**: `users-route.ts` murni untuk menangani HTTP request, validasi body tipe data, dan response. Semua interaksi database dan bisnis logic murni ditangani oleh `user-service.ts`.
-- Pastikan kode berjalan dalam mode *Type Safe* menggunakan TypeScript.
+## Catatan Tambahan (Best Practice)
+- **Keamanan:** Selalu berhati-hati agar informasi sensitif seperti *password hash* tidak terekspos di response payload.
+- **Separation of Concerns:** Pastikan `users-route.ts` hanya bertugas membaca request header dan mengirimkan response. Logika pencarian data di database sepenuhnya dikelola oleh `user-service.ts`.
+- Terapkan tipe data dengan ketat menggunakan TypeScript.

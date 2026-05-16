@@ -79,3 +79,28 @@ export const loginUser = async (payload: any) => {
     return { error: "Terjadi kesalahan saat membuat session" };
   }
 };
+export const getCurrentUser = async (token: string) => {
+  if (!db) {
+    throw new Error("Database connection is not initialized.");
+  }
+
+  // 1. Pencarian Session & User dengan Join
+  const result = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+    })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(eq(sessions.token, token))
+    .limit(1);
+
+  const user = result[0];
+
+  if (!user) {
+    return { error: "Unauthorized" };
+  }
+
+  return { data: user };
+};
