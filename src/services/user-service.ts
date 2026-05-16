@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { users } from "../db/schema";
+import { users, sessions } from "../db/schema";
 import { eq } from "drizzle-orm";
 
 export const registerUser = async (payload: any) => {
@@ -37,5 +37,45 @@ export const registerUser = async (payload: any) => {
   } catch (error: any) {
     console.error("Registration error:", error);
     return { error: "Terjadi kesalahan saat menyimpan data" };
+  }
+};
+
+export const loginUser = async (payload: any) => {
+  if (!db) {
+    throw new Error("Database connection is not initialized.");
+  }
+
+  const { email, password } = payload;
+
+  // 1. Pencarian User
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+
+  if (!user) {
+    return { error: "Email atau password salah" };
+  }
+
+  // 2. Verifikasi Password
+  const isPasswordValid = await Bun.password.verify(password, user.password);
+
+  if (!isPasswordValid) {
+    return { error: "Email atau password salah" };
+  }
+
+  // 3. Generate Session Token
+  const token = crypto.randomUUID();
+
+  try {
+    await db.insert(sessions).values({
+      token,
+      userId: user.id,
+    });
+    return { data: token };
+  } catch (error: any) {
+    console.error("Login error:", error);
+    return { error: "Terjadi kesalahan saat membuat session" };
   }
 };
